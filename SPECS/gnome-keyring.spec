@@ -4,12 +4,15 @@
 
 Name: gnome-keyring
 Version: 40.0
-Release: 3%{?dist}
+Release: 4%{?dist}
 Summary: Framework for managing passwords and other secrets
 
 License: GPLv2+ and LGPLv2+
 URL:     https://wiki.gnome.org/Projects/GnomeKeyring
 Source0: https://download.gnome.org/sources/%{name}/40/%{name}-%{version}.tar.xz
+# https://issues.redhat.com/browse/RHEL-25560
+Patch0:  gnome-keyring-40.0-ssh-agent-avoid-deadlock.patch
+Patch1:  gnome-keyring-40.0-strncpy.patch
 
 BuildRequires: pkgconfig(gcr-3) >= %{gcr_version}
 BuildRequires: pkgconfig(glib-2.0) >= %{glib2_version}
@@ -105,6 +108,9 @@ rm $RPM_BUILD_ROOT%{_libdir}/gnome-keyring/devel/*.la
 
 
 %changelog
+* Fri Apr 12 2024 David King <dking@redhat.com> - 40.0-4
+- Avoid SSH agent deadlocks (RHEL-25560)
+
 * Mon Aug 09 2021 Mohan Boddu <mboddu@redhat.com> - 40.0-3
 - Rebuilt for IMA sigs, glibc 2.34, aarch64 flags
   Related: rhbz#1991688

@@ -1,0 +1,82 @@
+From dd92a85fb44ff68e075c348176d042448745fac8 Mon Sep 17 00:00:00 2001
+From: Steven Luo <s_luo@berkeley.edu>
+Date: Mon, 5 Feb 2024 10:22:02 -0800
+Subject: [PATCH 1/2] ssh-agent: avoid deadlock when agent process dies before
+ we connect to it
+
+gkd_ssh_agent_process_connect() waits for the ssh-agent process to
+become ready to accept input by entering the main loop while holding
+self->lock.  However, if the ssh-agent process dies before becoming
+ready, the main loop will call on_child_watch(), which needs to take
+self->lock, causing a deadlock.  Fix this by releasing the lock before
+entering the main loop.
+
+This should prevent a busyloop that's been reported multiple times [1]
+[2] from lasting forever.
+
+[1] https://bugzilla.gnome.org/show_bug.cgi?id=794848
+[2] https://bugzilla.redhat.com/show_bug.cgi?id=1841855 (migrated to
+https://issues.redhat.com/browse/RHEL-9302)
+---
+ daemon/ssh-agent/gkd-ssh-agent-process.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/daemon/ssh-agent/gkd-ssh-agent-process.c b/daemon/ssh-agent/gkd-ssh-agent-process.c
+index d3bb3a7ed..cbf10ffb2 100644
+--- a/daemon/ssh-agent/gkd-ssh-agent-process.c
++++ b/daemon/ssh-agent/gkd-ssh-agent-process.c
+@@ -228,8 +228,11 @@ gkd_ssh_agent_process_connect (GkdSshAgentProcess *self,
+ 
+ 	if (started && !self->ready) {
+ 		source = g_timeout_add_seconds (5, on_timeout, &timedout);
+-		while (!self->ready && !timedout)
++		while (!self->ready && !timedout) {
++			g_mutex_unlock (&self->lock);
+ 			g_main_context_iteration (NULL, FALSE);
++			g_mutex_lock (&self->lock);
++		}
+ 		g_source_remove (source);
+ 	}
+ 
+-- 
+GitLab
+
+
+From 03ca2228205bfaa7510116142f9beaaf2a682042 Mon Sep 17 00:00:00 2001
+From: Steven Luo <s_luo@berkeley.edu>
+Date: Mon, 5 Feb 2024 10:29:56 -0800
+Subject: [PATCH 2/2] ssh-agent: stop waiting for agent to become ready if it's
+ dead
+
+If the ssh-agent process we launch dies before it becomes ready to take
+input, self->pid will be set to 0 by on_child_watch().  If that happens,
+there's no point in continuing to wait for the process to become ready.
+This should avoid an unnecessary five-second wait in cases like [1] or
+[2].
+
+[1] https://bugzilla.gnome.org/show_bug.cgi?id=794848
+[2] https://bugzilla.redhat.com/show_bug.cgi?id=1841855 (migrated to
+https://issues.redhat.com/browse/RHEL-9302)
+---
+ daemon/ssh-agent/gkd-ssh-agent-process.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/daemon/ssh-agent/gkd-ssh-agent-process.c b/daemon/ssh-agent/gkd-ssh-agent-process.c
+index cbf10ffb2..82e5559fb 100644
+--- a/daemon/ssh-agent/gkd-ssh-agent-process.c
++++ b/daemon/ssh-agent/gkd-ssh-agent-process.c
+@@ -226,9 +226,9 @@ gkd_ssh_agent_process_connect (GkdSshAgentProcess *self,
+ 		started = TRUE;
+ 	}
+ 
+-	if (started && !self->ready) {
++	if (started && self->pid && !self->ready) {
+ 		source = g_timeout_add_seconds (5, on_timeout, &timedout);
+-		while (!self->ready && !timedout) {
++		while (self->pid && !self->ready && !timedout) {
+ 			g_mutex_unlock (&self->lock);
+ 			g_main_context_iteration (NULL, FALSE);
+ 			g_mutex_lock (&self->lock);
+-- 
+GitLab
+
