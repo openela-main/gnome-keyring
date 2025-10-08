@@ -1,0 +1,21 @@
+S-expressions test: Call gkm_crypto_sign_xsa with correct size type
+
+The underlying type for gsize can be unsigned int, which is a distinct
+type from unsigned long (the type behind CK_ULONG). The mismatch
+results in compilation failures with GCC 14.
+
+Submitted upstream: <https://gitlab.gnome.org/GNOME/gnome-keyring/-/merge_requests/63>
+
+diff --git a/pkcs11/gkm/test-sexp.c b/pkcs11/gkm/test-sexp.c
+index ba104a0e5b776669..fccf672353ddf42f 100644
+--- a/pkcs11/gkm/test-sexp.c
++++ b/pkcs11/gkm/test-sexp.c
+@@ -224,7 +224,7 @@ test_sign_verify (Test *test, gconstpointer unused)
+ 	guchar data[] = TEST_DATA;
+ 	guchar data_size = TEST_DATA_SIZE;
+ 	guchar signature[128];
+-	gsize signature_size = 128;
++	CK_ULONG signature_size = 128;
+ 
+ 	/* RSA */
+ 	/* sign some data */
